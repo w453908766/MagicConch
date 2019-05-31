@@ -33,3 +33,9 @@ mapChart f (SList xs) = SList $ f $ map (mapChart f) xs
 mapChart _ x = x
 
      
+infixOf op0 sexp =
+  case sexp of
+  (SList (_:Operator op1:_)) -> op0==op1
+  otherwise -> False
+  
+

@@ -92,5 +92,7 @@ foldExpr :: PTerm -> PTerm
 foldExpr (Expr xs) = head $ head $ List.dropWhile (not . List.null . tail) $ iterate foldExpr' xs
  
 
-main = do {return ();}
+a *+* b = a+b
+
+infixr 7 *+*
 

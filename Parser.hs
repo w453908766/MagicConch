@@ -111,13 +111,13 @@ foldSExp (SList xs) = ret
 foldSExp x = x
 
 
-parseSExp :: String -> SExp
+parseSExp :: String -> [SExp]
 parseSExp s = 
   case parse pSExp "<stdin>" s of
-  Left e  -> Symbol (show e)
-  Right x -> foldSExp x
+  Left e  -> [Symbol (show e)]
+  Right (SList xs) -> map foldSExp xs
 
 
-code = "(f :: Int -> Int -> Int) (f a b c = {d=a+b*c;return d()})"
+code = "(f :: Int -> Int -> Int) (f a b = {d=a+b;return d})"
 scode = "((f a b c) = ((d = (a+(b*c))) (return (d()))))"
 sexp = SList [SList [Symbol "f",Symbol "a",Symbol "b",Symbol "c"],Operator "=",SList [SList [Symbol "d",Operator "=",SList [Symbol "a",Operator "+",SList [Symbol "b",Operator "*",Symbol "c"]]],SList [Symbol "return",SList [Symbol "d",SList []]]]]
