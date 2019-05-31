@@ -1,5 +1,6 @@
 module SExp where
 
+import Utils
 
 data SExp
   = Symbol String
@@ -11,7 +12,6 @@ data SExp
 instance Monoid SExp where
   mempty = SList []
   mappend (SList xs) (SList ys) = SList (xs++ys)
-
 
 getSList (SList xs) = xs
 
@@ -26,15 +26,10 @@ showSExp' (SList (x:xs)) =
     
 showSExp = flip showSExp' ""
 
+
+
 mapChart :: ([SExp] -> [SExp]) -> (SExp -> SExp)
 mapChart f (SList xs) = SList $ f $ map (mapChart f) xs
 mapChart _ x = x
 
-
      
-     
-
-
-scode = "((f a b c) = ((d = (a+b*c)) (return d)))"
-sexp = SList [SList [Symbol "f",Symbol "a",Symbol "b",Symbol "c"],Symbol "=",SList [SList [Symbol "d",Symbol "=",Symbol "a",Symbol "+",Symbol "b",Symbol "*",Symbol "c"],SList [Symbol "return",Symbol "d"]]]
-

@@ -91,8 +91,6 @@ foldExpr' xs = Expr call:last'
 foldExpr :: PTerm -> PTerm
 foldExpr (Expr xs) = head $ head $ List.dropWhile (not . List.null . tail) $ iterate foldExpr' xs
  
-f a
- |a==0 = 0
- |otherwise = 1
 
+main = do {return ();}
 
