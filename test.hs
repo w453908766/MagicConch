@@ -14,26 +14,13 @@ import qualified Text.Parsec.Token as Tok
 
 import Debug.Trace
 
-data Expr 
-  = Lit Char 
-  | Add Expr Expr 
-  | Mul Expr Expr
-  deriving (Show)
 
-table = 
-  [ [Infix (char '*' >> return Mul) AssocNone]
-  , [Infix (char '+' >> return Add) AssocNone]
-  ]
+xs = [1,2,3,4,5]
+ys = "ab"
 
-expr :: Parser Expr
-expr = buildExpressionParser table (fmap Lit digit)
+zips = [(x, y) |x<-xs, y<-ys]
 
-
-dd :: Parsec [Int] () Char
-dd = token show (const (newPos "dsfs" 0 0)) (const (Just 'c'))
-
-token' :: (Show a) => Parsec [a] s a
-token' = token show (const (newPos "" 0 0)) Just
-
---test :: Parsec [Int] () Int
---test = many 
+zs = do
+  x <- xs
+  y <- ys
+  [(x,y)]

@@ -72,15 +72,19 @@ isOperator (Symbol (x:_)) = elem x opChars
 isOperator _ = False
 
 infixs =
-  [(AssocLeft, ["*","/"]),
-   (AssocLeft, ["+","-"]),
-   (AssocRight, ["=","<-","::","->"])
+  [(["*","/"], []),
+   (["+","-"], []),
+   ([], ["=","<-","::","->"])
   ]
 
-makeInfix :: SExp -> Assoc -> Operator [SExp] u Identity SExp
-makeInfix op assoc = Infix ((satisfy' (== op))  >> return  (\a b -> SList [op, a, b])) assoc
+infixsTable :: [[Operator [SExp] u Identity SExp]]
+infixsTable = do
+  let makeInfix assoc op = Infix ((satisfy' (== op))  >> return  (\a b -> SList [op, a, b])) assoc
+  let makeItems assoc opNames = map (makeInfix assoc . Symbol) opNames
 
-infixsTable = map (\(assoc, ops)-> [makeInfix (Symbol op) assoc|op<-ops]) infixs
+  (lefts, rights) <- infixs
+  [(makeItems AssocLeft lefts) ++ (makeItems AssocRight rights)]
+  
 
 callExpr :: Parsec [SExp] s SExp
 callExpr = do
