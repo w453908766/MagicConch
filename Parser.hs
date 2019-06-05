@@ -8,6 +8,7 @@ import qualified Data.Map as Map
 import Data.Function
 
 import Text.Parsec as P
+import Text.Parsec.Prim as Prim
 import Text.Parsec.Expr
 import Text.Parsec.String (Parser)
 import Text.Parsec.Language (haskellDef)
@@ -20,7 +21,7 @@ import SExp
 
 opChars = ":!#$%&*+./<=>?@\\^|-~"
 
-langDef :: Tok.LanguageDef ()
+langDef :: Tok.LanguageDef Int
 langDef = Tok.LanguageDef
   { Tok.commentStart    = "{-"
   , Tok.commentEnd      = "-}"
@@ -37,21 +38,30 @@ langDef = Tok.LanguageDef
   }
 
 
-lexer :: Tok.TokenParser ()
+lexer :: Tok.TokenParser Int
 lexer = Tok.makeTokenParser langDef
 
-pOperator = Symbol <$> Tok.operator lexer
-pSymbol = Symbol <$> Tok.identifier lexer
-pNumber = Lit <$> Tok.integer lexer
+pOperator, pSymbol, pNumber, pAtom, pBlock, pIf, pItem, pSExp :: Parsec String Int (SExp Int)
+
+consumeIndex :: Parsec String Int Int
+consumeIndex = do
+  index <- getState
+  putState (index+1)
+  return index
+
+pOperator = Symbol <$> consumeIndex <*> Tok.operator lexer
+pSymbol = Symbol <$> consumeIndex <*> Tok.identifier lexer
+pNumber = Lit <$> consumeIndex <*> Tok.integer lexer
 
 pAtom = pOperator <|> pSymbol <|> pNumber
 
 
 pKey key = do
   spaces
+  index <- consumeIndex 
   Tok.reserved lexer key
   ret <- pSExp
-  return (SList [Symbol key, ret])
+  return (SList [Symbol index key, ret])
 
 pBlock = SList <$> Tok.braces lexer (Tok.semiSep lexer pSExp)
 
@@ -67,8 +77,8 @@ pSExp = spaces >> SList <$> sepBy pItem spaces
 
 -----------------------------
 
-isOperator :: SExp -> Bool
-isOperator (Symbol (x:_)) = elem x opChars
+isOperator :: SExp a -> Bool
+isOperator (Symbol _ (x:_)) = elem x opChars
 isOperator _ = False
 
 infixs =
@@ -77,27 +87,29 @@ infixs =
    ([], ["=","<-","::","->"])
   ]
 
-infixsTable :: [[Operator [SExp] u Identity SExp]]
+infixsTable :: [[Operator [SExp Int] u Identity (SExp Int)]]
 infixsTable = do
-  let makeInfix assoc op = Infix ((satisfy' (== op))  >> return  (\a b -> SList [op, a, b])) assoc
-  let makeItems assoc opNames = map (makeInfix assoc . Symbol) opNames
+  let infixOp opName = do
+        op <- satisfy' (SExp.isSymbol opName)
+        return (\a b -> SList [op, a, b])
+
+  let makeItems assoc opNames = map ((flip Infix assoc) . infixOp) opNames
 
   (lefts, rights) <- infixs
   [(makeItems AssocLeft lefts) ++ (makeItems AssocRight rights)]
   
 
-callExpr :: Parsec [SExp] s SExp
+callExpr :: Parsec [SExp Int] s (SExp Int)
 callExpr = do
   xs <- many (satisfy' (not . isOperator))
   case xs of
     [x] -> return x
     otherwise -> return (SList xs)
 
-foldSExp' :: Parsec [SExp] s SExp
+foldSExp' :: Parsec [SExp Int] s (SExp Int)
 foldSExp' = buildExpressionParser infixsTable callExpr
 
-foldSExp :: SExp -> Either ParseError SExp
-foldSExp (SList []) = Right (SList [])
+foldSExp :: SExp Int -> Either ParseError (SExp Int)
 foldSExp (SList xs) = do
   xs' <- traverse foldSExp xs
   parse foldSExp' "<stdin>" xs'
@@ -105,11 +117,13 @@ foldSExp (SList xs) = do
 foldSExp x = Right x
 
 
-parseSExp :: String -> SExp
+
+parseSExp :: String -> SExp Int
 parseSExp s = do
-  case (parse pSExp "<stdin>" s) >>= foldSExp of
-    Left e  -> Symbol (show e)
+  case (runP pSExp 1 "<stdin>" s) >>= foldSExp of
+    Left e  -> Symbol 0 (show e)
     Right x -> x
+
 
 
 code = "(f :: Int -> Int -> Int) (f a b = {d=a+b;return d})"

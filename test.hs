@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts, UndecidableInstances #-}
 
+import Data.Functor.Classes
 import Data.Char
 import Data.String
 import Data.List as List
@@ -15,12 +17,9 @@ import qualified Text.Parsec.Token as Tok
 import Debug.Trace
 
 
-xs = [1,2,3,4,5]
-ys = "ab"
+m :: Maybe Int
+m = do
 
-zips = [(x, y) |x<-xs, y<-ys]
-
-zs = do
-  x <- xs
-  y <- ys
-  [(x,y)]
+  a <- fmap f (Just 5)
+  let f = (+1)
+  return a
