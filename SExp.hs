@@ -4,8 +4,8 @@ import Utils
 
 data SExp
   = Symbol String
-  | Operator String
-  | Number Integer
+  | Lit Integer
+  | Quote SExp
   | SList [SExp]
   deriving (Eq, Ord, Show, Read)
 
@@ -17,8 +17,8 @@ getSList (SList xs) = xs
 
 showSExp' :: SExp -> ShowS
 showSExp' (Symbol name) = mappend name
-showSExp' (Operator op) = mappend op
-showSExp' (Number num) = shows num
+showSExp' (Lit num) = shows num
+showSExp' (Quote quote) = (mappend "(Quote ") . (showSExp' quote) . (showChar ')')
 showSExp' (SList []) = mappend "()"
 showSExp' (SList (x:xs)) = 
   \s -> showChar '(' $ showSExp' x $ foldr showSpace  (')':s) xs
@@ -32,10 +32,9 @@ mapChart :: ([SExp] -> [SExp]) -> (SExp -> SExp)
 mapChart f (SList xs) = SList $ f $ map (mapChart f) xs
 mapChart _ x = x
 
+satSymbol f (Symbol x) = f x
+satSymbol _ _ = False
      
-infixOf op0 sexp =
-  case sexp of
-  (SList (_:Operator op1:_)) -> op0==op1
-  otherwise -> False
-  
+isSymbol s = satSymbol (==s)
+
 

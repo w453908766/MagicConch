@@ -2,12 +2,13 @@ module Parser where
 
 import Data.Char
 import Data.String
+import Data.Functor.Identity
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Function
 
 import Text.Parsec as P
-import Text.Parsec.Pos
+import Text.Parsec.Expr
 import Text.Parsec.String (Parser)
 import Text.Parsec.Language (haskellDef)
 import qualified Text.Parsec.Token as Tok
@@ -39,9 +40,9 @@ langDef = Tok.LanguageDef
 lexer :: Tok.TokenParser ()
 lexer = Tok.makeTokenParser langDef
 
-pOperator = Operator <$> Tok.operator lexer
+pOperator = Symbol <$> Tok.operator lexer
 pSymbol = Symbol <$> Tok.identifier lexer
-pNumber = Number <$> Tok.integer lexer
+pNumber = Lit <$> Tok.integer lexer
 
 pAtom = pOperator <|> pSymbol <|> pNumber
 
@@ -64,60 +65,52 @@ pItem = (Tok.parens lexer pSExp) <|> pBlock <|> pIf <|> pKey "return" <|> pAtom
 
 pSExp = spaces >> SList <$> sepBy pItem spaces
 
-priority = Map.fromList 
- [  ("=", (2, False)),
-    ("<-", (2, False)),
-    ("::", (2, False)),
-
-    ("->", (2, False)),
-
-    ("+", (6, True)),
-    ("-", (6, True)),
-    ("*", (7, True)),
-    ("/", (7, True))
- ]
+-----------------------------
 
 isOperator :: SExp -> Bool
-isOperator (Operator x) = True
+isOperator (Symbol (x:_)) = elem x opChars
 isOperator _ = False
 
-foldCall [x] = x
-foldCall xs = SList xs
+infixs =
+  [(AssocLeft, ["*","/"]),
+   (AssocLeft, ["+","-"]),
+   (AssocRight, ["=","<-","::","->"])
+  ]
 
-zipOperator [] = []
-zipOperator [x] = [(x, Operator "")]
-zipOperator (x:op:xs) = (x, op):(zipOperator xs)
+makeInfix :: SExp -> Assoc -> Operator [SExp] u Identity SExp
+makeInfix op assoc = Infix ((satisfy' (== op))  >> return  (\a b -> SList [op, a, b])) assoc
+
+infixsTable = map (\(assoc, ops)-> [makeInfix (Symbol op) assoc|op<-ops]) infixs
+
+callExpr :: Parsec [SExp] s SExp
+callExpr = do
+  xs <- many (satisfy' (not . isOperator))
+  case xs of
+    [x] -> return x
+    otherwise -> return (SList xs)
+
+foldSExp' :: Parsec [SExp] s SExp
+foldSExp' = buildExpressionParser infixsTable callExpr
+
+foldSExp :: SExp -> Either ParseError SExp
+foldSExp (SList []) = Right (SList [])
+foldSExp (SList xs) = do
+  xs' <- traverse foldSExp xs
+  parse foldSExp' "<stdin>" xs'
+
+foldSExp x = Right x
 
 
-mapPrior [_] _ _ = [(0, 0)]
-mapPrior ((_, Operator op):xs) left right
- |leftComb  = (prior, left):(mapPrior xs (left-1) right)
- |otherwise = (prior, right):(mapPrior xs left (right+1))
-  where (prior, leftComb) = (Map.!) priority op
-  
-
-foldOperator (a, op0) (b, op1) = (SList [a,op0,b], op1)
-
-foldSExp :: SExp -> SExp
-foldSExp (SList []) = SList []
-foldSExp (SList xs) = ret
-  where
-    xs' = map foldSExp xs 
-    groups = List.groupBy (on (==) isOperator) xs' :: [[SExp]]
-    xs'' = map foldCall groups :: [SExp]
-    zip' = zipOperator xs'' :: [(SExp, SExp)]
-    priors = mapPrior zip' 0 0
-    (ret, _) = foldExpr foldOperator priors zip'
-foldSExp x = x
-
-
-parseSExp :: String -> [SExp]
-parseSExp s = 
-  case parse pSExp "<stdin>" s of
-  Left e  -> [Symbol (show e)]
-  Right (SList xs) -> map foldSExp xs
+parseSExp :: String -> SExp
+parseSExp s = do
+  case (parse pSExp "<stdin>" s) >>= foldSExp of
+    Left e  -> Symbol (show e)
+    Right x -> x
 
 
 code = "(f :: Int -> Int -> Int) (f a b = {d=a+b;return d})"
 scode = "((f a b c) = ((d = (a+(b*c))) (return (d()))))"
-sexp = SList [SList [Symbol "f",Symbol "a",Symbol "b",Symbol "c"],Operator "=",SList [SList [Symbol "d",Operator "=",SList [Symbol "a",Operator "+",SList [Symbol "b",Operator "*",Symbol "c"]]],SList [Symbol "return",SList [Symbol "d",SList []]]]]
+
+
+
+
