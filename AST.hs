@@ -8,71 +8,34 @@ import Debug.Trace
 import SExp
 import Parser
 
-data MCType
-  = MCInt
-  | Arrow MCType MCType
-  deriving (Show, Read, Eq)
-
-data Declare = Declare String MCType 
-  deriving (Show, Read, Eq)
+type Clause = ([Pattern], Expr)
 
 data Pattern
-  = Param Declare 
-  | Pattern [Pattern]
+  = PVar String              -- x
+  | PCtor String [Pattern]   -- C1 t1 t2
+  | PAspat String Pattern    -- x@p
+  | PWild                    -- _
   deriving (Show, Read, Eq)
 
-data Stmt
-  = Value Declare
-  | Lit Int
-  | Lambda Pattern Stmt
-  | Return Stmt
-  | Call [Stmt]
-  | Define Declare Stmt
-  | IfStmt Stmt Stmt (Maybe Stmt)
-  | Block [Stmt]
+data Expr
+  = Var String               -- x
+  | Ctor String              -- T1 or 4 or 'c'
+  | App Expr Expr            -- f x
+  | Lambda [Pattern] Expr    -- \p1 p2 -> e
+  | Cond Expr Expr Expr      -- if e1 then e2 else e3
+  | Bind String [Clause]     -- f a b = body or a = x
+  | Case Expr [Clause]       -- case xxx of a => stmt1 ; b => stmt2
+  | Return Expr              -- return x
+  | Block [Expr]             -- stmt1 ; stmt2
+  | Decl String MCType       -- f :: Int -> Int
+  | Data String              --
+  deriving (Show, Read, Eq)
+
+data MCType
+  = TVar String              -- a
+  | TCtor String             -- T
+  | TApp [MCType]            -- T a b
   deriving (Show, Read, Eq)
 
 
-type Env = Map.Map String Declare
 
-genMCType :: SExp -> MCType
-genMCType (Symbol "Int") = MCInt
-genMCType (SList [ty0, Operator "->", ty1]) =
-  Arrow (genMCType ty0) (genMCType ty1)
-
-genDeclare :: SExp -> State Env Declare
-genDeclare (SList [Symbol name, Operator "::", ty]) = do
-  let decl = Declare name (genMCType ty)
-  modify (Map.insert name decl)
-  return decl
-
-genDefine :: SExp -> State Env Stmt
-genDefine (SList [Symbol name, Operator "=", expr]) = do
-  decl <- gets (flip (Map.!) name)
-  return $ Define decl (Lit 5)
-
-genDefine (SList [SList (Symbol name:_), Operator "=", expr]) = do
-  decl <- gets (flip (Map.!) name)
-  return $ Define decl (Lit 6)
-
-
-genAST' :: [SExp] -> State Env [Stmt]
-genAST' globals = do
-  let decls = filter (infixOf "::") globals
-  let defs = filter (infixOf "=") globals
-  traverse genDeclare decls
-  traverse genDefine defs
-
-genAST :: String -> [Stmt]
-genAST code = defs
-  where 
-    globals = parseSExp code
-    (defs, env) = runState (genAST' globals) Map.empty
-  
-
-
-  
-  
-
-
- 

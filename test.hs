@@ -1,5 +1,6 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts, UndecidableInstances #-}
+
+module Test (f) where
+
 
 import Data.Functor.Classes
 import Data.Char
@@ -17,9 +18,8 @@ import qualified Text.Parsec.Token as Tok
 import Debug.Trace
 
 
-m :: Maybe Int
-m = do
+import System.Environment
 
-  a <- fmap f (Just 5)
-  let f = (+1)
-  return a
+
+f n = n
+g n = n

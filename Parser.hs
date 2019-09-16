@@ -75,6 +75,12 @@ pItem = (Tok.parens lexer pSExp) <|> pBlock <|> pIf <|> pKey "return" <|> pAtom
 
 pSExp = spaces >> SList <$> sepBy pItem spaces
 
+pAll = do
+  sexp <- pSExp
+  eof
+  num <- getState
+  return (num, sexp)
+
 -----------------------------
 
 isOperator :: SExp a -> Bool
@@ -117,11 +123,16 @@ foldSExp (SList xs) = do
 foldSExp x = Right x
 
 
+parseSExp' :: String -> Either ParseError (Int, SExp Int)
+parseSExp' code = do
+  (num, sexp) <- runP pAll 1 "<stdin>" code
+  sexp' <- foldSExp sexp
+  return (num, sexp')
 
-parseSExp :: String -> SExp Int
-parseSExp s = do
-  case (runP pSExp 1 "<stdin>" s) >>= foldSExp of
-    Left e  -> Symbol 0 (show e)
+
+parseSExp code =
+  case parseSExp' code of
+    Left e  -> (0, Symbol 0 (show e))
     Right x -> x
 
 
