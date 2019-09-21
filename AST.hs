@@ -1,41 +1,45 @@
 module AST where
 
-import qualified Data.Map as Map
-import Control.Monad.State
-
-import Debug.Trace 
-
-import SExp
-import Parser
-
-type Clause = ([Pattern], Expr)
 
 data Pattern
   = PVar String              -- x
   | PCtor String [Pattern]   -- C1 t1 t2
   | PAspat String Pattern    -- x@p
+  | PLit Lit                 -- 5 or 'c'
   | PWild                    -- _
   deriving (Show, Read, Eq)
 
 data Expr
   = Var String               -- x
-  | Ctor String              -- T1 or 4 or 'c'
+  | Lit Lit                  -- 4 or 'c'
+  | Ctor String              -- T1
   | App Expr Expr            -- f x
-  | Lambda [Pattern] Expr    -- \p1 p2 -> e
+  | Lambda [Pattern] StmtBlock    -- \p1 p2 -> e
   | Cond Expr Expr Expr      -- if e1 then e2 else e3
-  | Bind String [Clause]     -- f a b = body or a = x
-  | Case Expr [Clause]       -- case xxx of a => stmt1 ; b => stmt2
+  | Case Expr [(Pattern, Expr)]       -- case xxx of a => stmt1 ; b => stmt2
   | Return Expr              -- return x
-  | Block [Expr]             -- stmt1 ; stmt2
-  | Decl String MCType       -- f :: Int -> Int
-  | Data String              --
+  | Let String Expr       -- x = expr
   deriving (Show, Read, Eq)
 
-data MCType
+type StmtBlock = [Expr]
+
+data Decl
+  = Proto String Typ         -- f :: a
+  | ProtoFamily String [String] Typ -- f a b :: a -> b -> b
+  | Func String [Pattern] StmtBlock       -- f a b = body
+  | Val Pattern Expr         -- a = x
+  deriving (Show, Read, Eq)
+
+data Typ
   = TVar String              -- a
   | TCtor String             -- T
-  | TApp [MCType]            -- T a b
+  | TApp Typ Typ             -- T a
   deriving (Show, Read, Eq)
 
+data Lit
+  = IntLit Integer
+  | CharLit Char
+  deriving (Show, Read, Eq)
+  
 
 

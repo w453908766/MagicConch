@@ -1,11 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Parser where
 
-import Data.Char
-import Data.String
-import Data.Functor.Identity
-import qualified Data.List as List
-import qualified Data.Map as Map
-import Data.Function
+import Control.Applicative ((<$>), some)
+import Data.Text.Lazy (Text, unlines)
 
 import Text.Parsec as P
 import Text.Parsec.Prim as Prim
@@ -16,130 +14,186 @@ import qualified Text.Parsec.Token as Tok
 
 import Debug.Trace
 
-import Utils
-import SExp
+import Helper
+import Lexer
+import AST
 
-opChars = ":!#$%&*+./<=>?@\\^|-~"
+parseLit :: IParsec Lit
+parseLit =
+  (IntLit <$> intLit) <|> (CharLit <$> charLit)
 
-langDef :: Tok.LanguageDef Int
-langDef = Tok.LanguageDef
-  { Tok.commentStart    = "{-"
-  , Tok.commentEnd      = "-}"
-  , Tok.commentLine     = "--"
-  , Tok.nestedComments  = True
-  , Tok.identStart      = letter
-  , Tok.identLetter     = alphaNum <|> oneOf "_'"
-  , Tok.opStart         = oneOf opChars
-  , Tok.opLetter        = oneOf opChars
-  , Tok.reservedNames   = ["case","of","if","then","else","data","type","class","import","module","return"]
---  , Tok.reservedOpNames = ["::","=","<-","@", ";", "+", "-", "*", "/", "%"]
-  , Tok.reservedOpNames = [";"]
-  , Tok.caseSensitive   = True
-  }
+---------------------------------------------------
+
+parsePattern :: IParsec Pattern
+parsePattern = do
+  parens parsePattern
+  <|> parsePWild
+  <|> (PLit <$> parseLit)
+  <|> parsePCtor
+  <|> (ident >>= parsePattern0)
+
+parsePWild = do
+  reserved "_"
+  return PWild
+
+parsePCtor = do
+  ctor <- uppIdent
+  args <- many parsePattern
+  return $ PCtor ctor args
+
+parsePattern0 :: String -> IParsec Pattern
+parsePattern0 name = (
+  do
+    sat (=='@')
+    p <- parsePattern
+    return $ PAspat name p
+  ) <|> (return $ PVar name)
+
+---------------------------------------------------
+parseType :: IParsec Typ
+parseType = do
+  ts <- sepBy1 uppIdent (reservedOp "->")
+  return $ foldr1 TApp (fmap TVar ts)
+
+---------------------------------------------------
+
+parseProto :: Pattern -> IParsec Decl   
+parseProto (PVar name) = do
+  reservedOp "::"
+  typ <- parseType
+  return $ Proto name typ 
+  
+parseProtoFamily :: String -> [Pattern] -> IParsec Decl
+parseProtoFamily name pats = do
+  reservedOp "::"
+  typ <- parseType
+  let params = [x|(PVar x)<-pats]
+  return $ ProtoFamily name params typ
+  
+       
+parseFunc :: String -> [Pattern] -> IParsec Decl
+parseFunc name pats = do
+  reservedOp "="
+  body <- some parseExpr
+  return $ Func name pats body
+  
+parseVal :: Pattern -> IParsec Decl
+parseVal pat = do 
+  reservedOp "="
+  val <- parseExpr
+  return $ Val pat val
 
 
-lexer :: Tok.TokenParser Int
-lexer = Tok.makeTokenParser langDef
+parseDecl :: IParsec Decl
+parseDecl = do
+  pats <- some parsePattern
+  case pats of
+    [pat] ->
+      parseProto pat
+      <|> parseVal pat
+    (PVar name:params) -> 
+      parseProtoFamily name params
+      <|> parseFunc name params
+  
+---------------------------------------------------
 
-pOperator, pSymbol, pNumber, pAtom, pBlock, pIf, pItem, pSExp :: Parsec String Int (SExp Int)
-
-consumeIndex :: Parsec String Int Int
-consumeIndex = do
-  index <- getState
-  putState (index+1)
-  return index
-
-pOperator = Symbol <$> consumeIndex <*> Tok.operator lexer
-pSymbol = Symbol <$> consumeIndex <*> Tok.identifier lexer
-pNumber = Lit <$> consumeIndex <*> Tok.integer lexer
-
-pAtom = pOperator <|> pSymbol <|> pNumber
-
-
-pKey key = do
+parseModule :: IParsec [Decl]
+parseModule = do
   spaces
-  index <- consumeIndex 
-  Tok.reserved lexer key
-  ret <- pSExp
-  return (SList [Symbol index key, ret])
-
-pBlock = SList <$> Tok.braces lexer (Tok.semiSep lexer pSExp)
-
-pIf = do
-  cond' <- pKey "if"
-  then' <- pKey "then"
-  else' <- option (SList []) (pKey "else")
-  return $ mappend cond' $ mappend then' else'
-
-pItem = (Tok.parens lexer pSExp) <|> pBlock <|> pIf <|> pKey "return" <|> pAtom
-
-pSExp = spaces >> SList <$> sepBy pItem spaces
-
-pAll = do
-  sexp <- pSExp
+  decls <- block parseDecl
   eof
-  num <- getState
-  return (num, sexp)
+  return decls
 
------------------------------
+---------------------------------------------------
 
-isOperator :: SExp a -> Bool
-isOperator (Symbol _ (x:_)) = elem x opChars
-isOperator _ = False
-
-infixs =
-  [(["*","/"], []),
-   (["+","-"], []),
-   ([], ["=","<-","::","->"])
-  ]
-
-infixsTable :: [[Operator [SExp Int] u Identity (SExp Int)]]
-infixsTable = do
-  let infixOp opName = do
-        op <- satisfy' (SExp.isSymbol opName)
-        return (\a b -> SList [op, a, b])
-
-  let makeItems assoc opNames = map ((flip Infix assoc) . infixOp) opNames
-
-  (lefts, rights) <- infixs
-  [(makeItems AssocLeft lefts) ++ (makeItems AssocRight rights)]
+parseExpr :: IParsec Expr
+parseExpr = do
+  es <- some parseExpr'
+  return $ case es of
+    [e] -> e
+    es -> foldl1 App es
+   
   
 
-callExpr :: Parsec [SExp Int] s (SExp Int)
-callExpr = do
-  xs <- many (satisfy' (not . isOperator))
-  case xs of
-    [x] -> return x
-    otherwise -> return (SList xs)
+parseExpr' :: IParsec Expr
+parseExpr' = do
+  (parens parseExpr)
+  <|> (Lit <$> parseLit)
+  <|> (Ctor <$> uppIdent)
+  <|> parseLambda
+  <|> parseCond
+  <|> parseCase
+  <|> parseReturn
+  <|> parseVar
 
-foldSExp' :: Parsec [SExp Int] s (SExp Int)
-foldSExp' = buildExpressionParser infixsTable callExpr
+parseVar :: IParsec Expr
+parseVar = do
+  var <- ident
+  (do
+    reservedOp "="
+    expr <- parseExpr
+    return $ Let var expr
+   ) <|> (return $ Var var)
+    
+  
 
-foldSExp :: SExp Int -> Either ParseError (SExp Int)
-foldSExp (SList xs) = do
-  xs' <- traverse foldSExp xs
-  parse foldSExp' "<stdin>" xs'
+parseReturn :: IParsec Expr
+parseReturn = do
+  reserved "return"
+  Return <$> parseExpr
 
-foldSExp x = Right x
+parseLambda :: IParsec Expr
+parseLambda = do
+  sat (=='\\')
+  pats <- some parsePattern
+  reservedOp "=>"
+  body <- many parseExpr
+  return $ Lambda pats body
+
+parseCond :: IParsec Expr
+parseCond = do
+  pos <- sourceColumn <$> getPosition
+  reserved "if"
+  cond <- parseExpr
+  
+  putState (ParseState (>=) pos)
+  reserved "then"
+  true' <- parseExpr
+  
+  putState (ParseState (>=) pos)
+  reserved "else"
+  false' <- parseExpr
+
+  return $ Cond cond true' false'
+  
+parseCase :: IParsec Expr
+parseCase = do
+  reserved "case"
+  val <- parseExpr 
+  reserved "of"
+  caluse <- block $ do
+    pat <- parsePattern 
+    reservedOp "=>"
+    body <- parseExpr
+    return $ (pat, body)
+
+  return $ Case val caluse
+    
+  
+  
+  
+   
 
 
-parseSExp' :: String -> Either ParseError (Int, SExp Int)
-parseSExp' code = do
-  (num, sexp) <- runP pAll 1 "<stdin>" code
-  sexp' <- foldSExp sexp
-  return (num, sexp')
 
+code = Data.Text.Lazy.unlines
+ [ "fact :: Arrow Int Int"
+ , "fact 0 = 1"
+ , "fact n ="
+ , " 5"
+ , " 6"
+ , " 7"
+ ]
 
-parseSExp code =
-  case parseSExp' code of
-    Left e  -> (0, Symbol 0 (show e))
-    Right x -> x
-
-
-
-code = "(f :: Int -> Int -> Int) (f a b = {d=a+b;return d})"
-scode = "((f a b c) = ((d = (a+(b*c))) (return (d()))))"
-
-
-
+ast = run parseModule code
 
