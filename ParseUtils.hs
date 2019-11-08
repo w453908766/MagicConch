@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Helper where
+module ParseUtils where
 
 import Data.Text.Lazy
 
-import Text.Parsec (ParseError)
+import Text.Parsec
 import Text.Parsec.Pos
 import Text.Parsec.Prim hiding (State)
 
@@ -12,6 +12,8 @@ import Control.Monad.Identity
 import Control.Applicative ((<$>), some)
 
 import Debug.Trace
+
+import Utils
 
 -- Indentation sensitive Parsec monad.
 type IParsec a = Parsec Text ParseState a
@@ -25,7 +27,7 @@ data ParseState = ParseState
 
 
 initParseState :: ParseState
-initParseState = ParseState (==) 0
+initParseState = ParseState (==) 1
 
 indented :: IParsec ()
 indented = do
@@ -36,12 +38,25 @@ indented = do
   
 block :: IParsec a -> IParsec [a]
 block p = do
-  cur <- getState
-  pos <- sourceColumn <$> getPosition
-  res <- Control.Applicative.some (putState (ParseState (==) pos) >> p)
-  putState cur
+  state <- getState
+  cur <- sourceColumn <$> getPosition
+  res <- Control.Applicative.some (putState (ParseState (==) cur) >> p)
+  putState state
   return res
 
 
 run :: IParsec a -> Text -> Either ParseError a
 run p = runParser p initParseState "<file>"
+
+
+sat p = indented >> satisfy p >> spaces
+
+
+parseParen :: ([a]->a) -> IParsec a -> IParsec a
+parseParen f p = do
+  sat (=='(')
+  ps <- sepBy1 p (sat (== ','))
+  sat (==')')
+  return $ combine f ps
+
+

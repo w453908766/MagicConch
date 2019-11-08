@@ -2,80 +2,81 @@
 
 module Parser where
 
+import Data.Functor.Identity
 import Control.Applicative ((<$>), some)
 import Data.Text.Lazy (Text, unlines)
 
-import Text.Parsec as P
+import Text.Parsec as P hiding (char)
 import Text.Parsec.Prim as Prim
-import Text.Parsec.Expr
+import Text.Parsec.Expr as Ex
 import Text.Parsec.String (Parser)
 import Text.Parsec.Language (haskellDef)
 import qualified Text.Parsec.Token as Tok
 
 import Debug.Trace
 
-import Helper
-import Lexer
+import Utils
 import AST
+import Lexer
+import ParseUtils
 
 parseLit :: IParsec Lit
 parseLit =
   (IntLit <$> intLit) <|> (CharLit <$> charLit)
 
+
 ---------------------------------------------------
 
 parsePattern :: IParsec Pattern
 parsePattern = do
-  parens parsePattern
-  <|> parsePWild
+  parseParen (PCons "Tuple") parsePattern
+  <|> (reserved "_" >> return PWild)
   <|> (PLit <$> parseLit)
   <|> parsePCtor
-  <|> (ident >>= parsePattern0)
-
-parsePWild = do
-  reserved "_"
-  return PWild
+  <|> parsePVar
 
 parsePCtor = do
   ctor <- uppIdent
   args <- many parsePattern
-  return $ PCtor ctor args
+  return $ PCons ctor args
 
-parsePattern0 :: String -> IParsec Pattern
-parsePattern0 name = (
-  do
-    sat (=='@')
-    p <- parsePattern
-    return $ PAspat name p
-  ) <|> (return $ PVar name)
+parsePVar :: IParsec Pattern
+parsePVar = do
+  cap <- optionMaybe (char '&') 
+  let captrue = cap/=Nothing
+  name<-ident
+  as <- optionMaybe (char '@' >> parsePattern)
+  return $ PVar captrue name as
+
 
 ---------------------------------------------------
-parseType :: IParsec Typ
+parseType :: IParsec Type
 parseType = do
-  ts <- sepBy1 uppIdent (reservedOp "->")
-  return $ foldr1 TApp (fmap TVar ts)
+  ts <- sepBy1 parseType' (reservedOp "->")
+  return $ foldr1 (\t0 t1 -> TCons "->" [t0,t1]) ts
+
+parseType' = do
+  parseParen (TCons "Tuple") parseType
+  <|> TVar <$> ident
+  <|> TCons <$> uppIdent <*> many parseType
+  
 
 ---------------------------------------------------
 
 parseProto :: Pattern -> IParsec Decl   
-parseProto (PVar name) = do
+parseProto (PVar False name Nothing) = do
   reservedOp "::"
   typ <- parseType
   return $ Proto name typ 
-  
-parseProtoFamily :: String -> [Pattern] -> IParsec Decl
-parseProtoFamily name pats = do
-  reservedOp "::"
-  typ <- parseType
-  let params = [x|(PVar x)<-pats]
-  return $ ProtoFamily name params typ
-  
+
+parseProto p = trace ("Proto" ++ show p) undefined
        
-parseFunc :: String -> [Pattern] -> IParsec Decl
-parseFunc name pats = do
+parseFunc :: Pattern -> IParsec Decl
+parseFunc (PVar False name Nothing) = do
+  params <- some parsePattern
   reservedOp "="
-  body <- some parseExpr
-  return $ Func name pats body
+  body <- parseExpr
+  return $ Func name [(params, body)]
   
 parseVal :: Pattern -> IParsec Decl
 parseVal pat = do 
@@ -86,15 +87,9 @@ parseVal pat = do
 
 parseDecl :: IParsec Decl
 parseDecl = do
-  pats <- some parsePattern
-  case pats of
-    [pat] ->
-      parseProto pat
-      <|> parseVal pat
-    (PVar name:params) -> 
-      parseProtoFamily name params
-      <|> parseFunc name params
-  
+  pat <- parsePattern
+  parseProto pat <|> parseVal pat <|> parseFunc pat
+
 ---------------------------------------------------
 
 parseModule :: IParsec [Decl]
@@ -106,51 +101,49 @@ parseModule = do
 
 ---------------------------------------------------
 
+
 parseExpr :: IParsec Expr
 parseExpr = do
-  es <- some parseExpr'
-  return $ case es of
-    [e] -> e
-    es -> foldl1 App es
-   
-  
-
-parseExpr' :: IParsec Expr
-parseExpr' = do
-  (parens parseExpr)
-  <|> (Lit <$> parseLit)
-  <|> (Ctor <$> uppIdent)
-  <|> parseLambda
+  traceM "parseExpr"
+  parseLambda
   <|> parseCond
   <|> parseCase
-  <|> parseReturn
-  <|> parseVar
+  <|> parseLet 
+  <|> parseBlock
+  <|> parseDeRef
+  <|> Ex.buildExpressionParser priority parseExpr'
 
-parseVar :: IParsec Expr
-parseVar = do
-  var <- ident
-  (do
-    reservedOp "="
-    expr <- parseExpr
-    return $ Let var expr
-   ) <|> (return $ Var var)
-    
-  
+parseExpr' = do
+  traceM "parseExpr'"
+  es <- some parseExpr''
+  return $ combine (foldl1 App) es
 
-parseReturn :: IParsec Expr
-parseReturn = do
-  reserved "return"
-  Return <$> parseExpr
+parseExpr'' = do
+  traceM "parseExpr''"
+  parseParen (foldl App (VCtor "Tuple")) parseExpr
+  <|> Lit <$> parseLit
+  <|> Var <$> ident 
+  <|> VCtor <$> uppIdent
 
-parseLambda :: IParsec Expr
+parseDeRef = do
+  char '!'
+  DeRef <$> ident
+
+parseLet = do
+  reserved "let"
+  Let <$> block parseDecl
+
+parseBlock = do
+  reserved "block"
+  Block <$> block parseExpr
+   
 parseLambda = do
-  sat (=='\\')
+  char '\\'
   pats <- some parsePattern
   reservedOp "=>"
-  body <- many parseExpr
+  body <- parseExpr
   return $ Lambda pats body
 
-parseCond :: IParsec Expr
 parseCond = do
   pos <- sourceColumn <$> getPosition
   reserved "if"
@@ -166,7 +159,6 @@ parseCond = do
 
   return $ Cond cond true' false'
   
-parseCase :: IParsec Expr
 parseCase = do
   reserved "case"
   val <- parseExpr 
@@ -178,22 +170,36 @@ parseCase = do
     return $ (pat, body)
 
   return $ Case val caluse
+
+
     
-  
-  
-  
-   
+ 
+infixOp :: String -> Ex.Assoc -> Ex.Operator Text ParseState Identity Expr
+infixOp x = Ex.Infix $ do
+  reservedOp x
+  return (\e0 e1 -> App (App (Var x) e0) e1)
 
-
-
+priority :: [[Ex.Operator Text ParseState Identity Expr]] 
+priority = [
+    [infixOp "*" Ex.AssocLeft],
+    [infixOp "+" Ex.AssocLeft
+    ,infixOp "-" Ex.AssocLeft
+    ],
+    [infixOp "==" Ex.AssocLeft],
+    [infixOp "<-" Ex.AssocNone]
+  ]
+ 
+  
 code = Data.Text.Lazy.unlines
- [ "fact :: Arrow Int Int"
+ [ "fact :: Int -> Int"
  , "fact 0 = 1"
- , "fact n ="
- , " 5"
- , " 6"
- , " 7"
+ , "fact n = block"
+ , "  let ret = fact(n-1)"
+ , "  n*ret"
  ]
 
 ast = run parseModule code
+
+code1 = "fact n = n*fact(n-1)"
+test = run parseModule code1
 

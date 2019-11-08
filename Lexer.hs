@@ -13,7 +13,7 @@ import Text.Parsec.String (Parser)
 import Text.Parsec.Language (haskellDef)
 import qualified Text.Parsec.Token as Tok
 
-import Helper
+import ParseUtils
 
 opChars = ":!#$%&*+./<=>?@\\^|-~"
 
@@ -26,9 +26,9 @@ langDef = Tok.LanguageDef
   , Tok.identLetter     = alphaNum <|> oneOf "_'"
   , Tok.opStart         = oneOf opChars
   , Tok.opLetter        = oneOf opChars
-  , Tok.reservedNames   = ["case","of","if","then","else","data","type","import","module","return","_"]
+  , Tok.reservedNames   = ["block", "case","of","if","then","else","data","type","import","module","return","_"]
 --  , Tok.reservedOpNames = ["::","=","<-","@", ";", "+", "-", "*", "/", "%"]
-  , Tok.reservedOpNames = ["::","..","=","\\","|","<-","->","@","~","=>"]
+  , Tok.reservedOpNames = ["::","..","=","\\","|","->","@","~","=>"]
   , Tok.caseSensitive   = True
   }
 
@@ -42,9 +42,6 @@ uppIdent0 = Tok.lexeme lexer $ ((do
   ) <?> "UppIdent")
 
 ----------------------------------------
-
-sat p = indented >> satisfy p
-
 operator = indented >> Tok.operator lexer
 reservedOp r = indented >> Tok.reservedOp lexer r
 
@@ -53,12 +50,13 @@ reserved r = indented >> Tok.reserved lexer r
 
 uppIdent = indented >> uppIdent0
 
-intLit = indented >> Tok.integer lexer
+intLit = indented >> Tok.natural lexer
 charLit = indented >> Tok.charLiteral lexer
 
 braces p = indented >> Tok.braces lexer p
 parens p = indented >> Tok.parens lexer p
 
+char c = sat (==c)
 
 
 {-

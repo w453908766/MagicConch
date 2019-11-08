@@ -5,9 +5,9 @@ import Data.Text.Lazy.IO
 
 import Text.Pretty.Simple (pPrint)
 
+import ParseUtils
 import Parser
 
-import Helper
 
 
 main = do
