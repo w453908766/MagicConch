@@ -7,13 +7,18 @@ import Text.Pretty.Simple (pPrint)
 
 import ParseUtils
 import Parser
+import Eval
 
 
 
 main = do
   handle <- openFile "test.mc" ReadMode  
   contents <- Data.Text.Lazy.IO.hGetContents handle  
-  pPrint $ run parseModule contents  
+  let par = run parseModule contents
+--  pPrint par
+  let (Right mod)  = par 
+  let ret = evalModule mod
+  pPrint ret
   hClose handle  
 
  

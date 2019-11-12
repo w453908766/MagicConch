@@ -16,7 +16,7 @@ import qualified Text.Parsec.Token as Tok
 import Debug.Trace
 
 import Utils
-import AST
+import Syntax
 import Lexer
 import ParseUtils
 
@@ -63,48 +63,80 @@ parseType' = do
 
 ---------------------------------------------------
 
-parseProto :: Pattern -> IParsec Decl   
-parseProto (PVar False name Nothing) = do
-  reservedOp "::"
-  typ <- parseType
-  return $ Proto name typ 
-
-parseProto p = trace ("Proto" ++ show p) undefined
-       
-parseFunc :: Pattern -> IParsec Decl
 parseFunc (PVar False name Nothing) = do
-  params <- some parsePattern
+  params <- some ident
   reservedOp "="
   body <- parseExpr
-  return $ Func name [(params, body)]
+  return $ Func name params body
   
-parseVal :: Pattern -> IParsec Decl
 parseVal pat = do 
   reservedOp "="
   val <- parseExpr
   return $ Val pat val
 
+parseProto :: Pattern -> IParsec Decl   
+parseProto (PVar False name Nothing) = do
+  reservedOp "::"
+  typ <- parseType
+  return $ Proto name typ 
+       
+parseTypeAlias :: IParsec Decl
+parseTypeAlias = do
+  reserved "type"
+  name <- uppIdent
+  params <- many ident
+  reservedOp "="
+  typ <- parseType
+  return $ TypeAlias name params typ
+  
+parseTypeCtor = do
+  reserved "data"
+  tyName <- uppIdent
+  params <- many ident
+  reserved "where"
+  ctors <- block $ do
+    vName <- uppIdent
+    tparams <- many parseType
+    return (vName, tparams)
+  return $ TypeCtor tyName params ctors
+
 
 parseDecl :: IParsec Decl
 parseDecl = do
-  pat <- parsePattern
-  parseProto pat <|> parseVal pat <|> parseFunc pat
+  parseTypeAlias 
+   <|> parseTypeCtor
+   <|> do
+    pat <- parsePattern
+    parseProto pat 
+     <|> parseVal pat
+     <|> parseFunc pat
 
 ---------------------------------------------------
 
-parseModule :: IParsec [Decl]
+parseModule :: IParsec Module
 parseModule = do
   spaces
   decls <- block parseDecl
   eof
-  return decls
+  return $ Module decls
+
+{-
+desugarDecls :: [Decl] -> [Decl]
+desugarDecls decls = desugarDecls' decls' [] 
+ where
+  decls' = reverse decls
+  desugarDecls' [] ds1 = ds1
+  desugarDecls' ((Func name0 cases0):ds0) ((Func name1 case1):ds1)
+   |name0 == name1 = desugarDecls' ds0 ((Func name0 (cases0++case1)):ds1)
+  desugarDecls' (d:ds0) ds1 = desugarDecls' ds0 (d:ds1)
+-}
+
 
 ---------------------------------------------------
 
 
 parseExpr :: IParsec Expr
 parseExpr = do
-  traceM "parseExpr"
   parseLambda
   <|> parseCond
   <|> parseCase
@@ -114,12 +146,10 @@ parseExpr = do
   <|> Ex.buildExpressionParser priority parseExpr'
 
 parseExpr' = do
-  traceM "parseExpr'"
   es <- some parseExpr''
   return $ combine (foldl1 App) es
 
 parseExpr'' = do
-  traceM "parseExpr''"
   parseParen (foldl App (VCtor "Tuple")) parseExpr
   <|> Lit <$> parseLit
   <|> Var <$> ident 
@@ -131,7 +161,8 @@ parseDeRef = do
 
 parseLet = do
   reserved "let"
-  Let <$> block parseDecl
+  decls <- block parseDecl
+  return $ Let decls
 
 parseBlock = do
   reserved "block"
@@ -139,10 +170,10 @@ parseBlock = do
    
 parseLambda = do
   char '\\'
-  pats <- some parsePattern
+  pats <- some ident
   reservedOp "=>"
   body <- parseExpr
-  return $ Lambda pats body
+  return $ foldr Lambda body pats
 
 parseCond = do
   pos <- sourceColumn <$> getPosition
@@ -191,11 +222,9 @@ priority = [
  
   
 code = Data.Text.Lazy.unlines
- [ "fact :: Int -> Int"
+ [ "a = 1"
  , "fact 0 = 1"
- , "fact n = block"
- , "  let ret = fact(n-1)"
- , "  n*ret"
+ , "fact n = n*fact(n-1)"
  ]
 
 ast = run parseModule code
