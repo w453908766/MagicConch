@@ -24,12 +24,13 @@ data Value
 type Env = Map String Value
 
 instance Show Value where
-  show (VInt x) = show x
+  show (VInt x)  = show x
   show (VBool x) = show x
   show (VChar x) = show x
-  show (VCons name values) = "VCons"
+  show (VCons name values) = "(" ++ (unwords (name : (fmap show values))) ++ ")"
   show (VClosure x body env) = "<<closure>>"
   show (VPrim n argv f) = "<<prim>>"
+
 
 instance Eq Value where
   (VInt x)  == (VInt y)  = x==y
@@ -66,8 +67,6 @@ eval (Cond cond tr fl) = do
     VBool False -> eval fl
     _ -> lift $ Left ("Condition is not Bool Type")
 
-
-
 eval (Block es) = do
   rs <- traverse eval es
   return $ last rs
@@ -88,8 +87,11 @@ eval (App func arg) = do
 
     (VPrim n args f) ->
       return $ VPrim (n-1) (argv:args) f
+
+    (VCons ctor elems) -> 
+      return $ VCons ctor (elems++[argv])
        
-    _ -> lift $ Left ((show v) ++ "is not a function")
+    _ -> lift $ Left ((show v) ++ " is not a function")
 
 eval (Lambda x body) = do
   env <- get
@@ -169,19 +171,19 @@ evalDecl (Func name params body) = do
   let body' = List.foldr Lambda body params
   clos <- eval body'
   modify $ Map.insert name clos
+
+
+evalDecl (TypeCtor _ _ ctors) = do
+  let f (name, _) = Map.insert name (VCons name [])
+  traverse (modify . f) ctors
+  return ()
+  
   
 evalDecls :: [Decl] -> (StateT Env) (Either String) ()
 evalDecls decls = do
-  let 
-    isFunc (Func{}) = True
-    isFunc _ = False
-    isVal (Val{}) = True
-    isVal _ = False
-    funcs = List.filter isFunc decls
-    vals = List.filter isVal decls
-  traverse evalDecl funcs
   traverse evalDecl decls
   return ()
+
 
 evalModule (Module decls) =
   runStateT (evalDecls decls) initEnv

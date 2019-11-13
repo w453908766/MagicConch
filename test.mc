@@ -1,4 +1,11 @@
 
-fact :: Int -> Int
-fact 0 = 1
-fact n = mul n (fact (sub n 1))
+
+data Maybe a where
+  Nothing
+  Just a
+
+
+d = Just (Just 6)
+e = Just (Just 6)
+
+z = d == e
