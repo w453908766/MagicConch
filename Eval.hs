@@ -21,7 +21,6 @@ data Value
  | VClosure String Expr Env
  | VPrim Int [Value] ([Value]->Value)
 
-type Env = Map String Value
 
 instance Show Value where
   show (VInt x)  = show x
@@ -39,8 +38,11 @@ instance Eq Value where
   (VCons n0 es0) == (VCons n1 es1) = n0==n1 && es0==es1
 
 
+type Env = Map String Value
+type EvalState = (StateT Env) (Either String)
 
-eval :: Expr -> (StateT Env) (Either String) Value
+
+eval :: Expr -> EvalState Value
 eval (Lit x) = 
  return $ case x of
   (IntLit x) -> VInt x
@@ -102,13 +104,52 @@ eval (Let decls) = do
   return $ VBool True
 
   
-evalEnv :: Env -> Expr -> (StateT Env) (Either String) Value
+evalEnv :: Env -> Expr -> EvalState Value
 evalEnv env' body = do
   env <- get
   put env'
   ret <- eval body
   put env
   return ret
+
+evalPatterns :: Cases -> Value -> EvalState Value
+evalPatterns [] _ = lift $ Left "Can not match any pattern"
+evalPatterns ((pat,body):ps) value = do
+  env <- get
+  case match pat value env of
+    Left _ -> evalPatterns ps value
+    Right env' -> evalEnv env' body
+
+evalDecl :: Decl -> EvalState ()
+evalDecl (Val pat expr) = do
+  env <- get
+  value <- eval expr
+  case match pat value env of
+    Right env' -> put env' 
+    Left err -> lift $ Left err
+
+evalDecl (Func name params body) = do
+  let body' = List.foldr Lambda body params
+  clos <- eval body'
+  modify $ Map.insert name clos
+
+
+evalDecl (TypeCtor _ _ ctors) = do
+  let f (name, _) = Map.insert name (VCons name [])
+  traverse (modify . f) ctors
+  return ()
+  
+  
+evalDecls :: [Decl] -> EvalState ()
+evalDecls decls = do
+  traverse evalDecl decls
+  return ()
+
+
+evalModule (Module decls) =
+  runStateT (evalDecls decls) initEnv
+
+-----------------------
 
 matchLit :: Lit -> Value -> Bool
 matchLit (IntLit x)  (VInt y)  = x==y
@@ -147,46 +188,6 @@ matchs [] [] env = return env
 matchs (p:ps) (v:vs) env = do
   env' <- match p v env
   matchs ps vs env'
-
-
-evalPatterns :: Cases -> Value -> (StateT Env) (Either String) Value
-evalPatterns [] _ = lift $ Left "Can not match any pattern"
-evalPatterns ((pat,body):ps) value = do
-  env <- get
-  case match pat value env of
-    Left _ -> evalPatterns ps value
-    Right env' -> evalEnv env' body
-
-
-
-evalDecl :: Decl -> (StateT Env) (Either String) ()
-evalDecl (Val pat expr) = do
-  env <- get
-  value <- eval expr
-  case match pat value env of
-    Right env' -> put env' 
-    Left err -> lift $ Left err
-
-evalDecl (Func name params body) = do
-  let body' = List.foldr Lambda body params
-  clos <- eval body'
-  modify $ Map.insert name clos
-
-
-evalDecl (TypeCtor _ _ ctors) = do
-  let f (name, _) = Map.insert name (VCons name [])
-  traverse (modify . f) ctors
-  return ()
-  
-  
-evalDecls :: [Decl] -> (StateT Env) (Either String) ()
-evalDecls decls = do
-  traverse evalDecl decls
-  return ()
-
-
-evalModule (Module decls) =
-  runStateT (evalDecls decls) initEnv
 
 
 
