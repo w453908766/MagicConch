@@ -15,7 +15,7 @@ main = do
   handle <- openFile "test.mc" ReadMode  
   contents <- Data.Text.Lazy.IO.hGetContents handle  
   let par = run parseModule contents
---  pPrint par
+  pPrint par
   let (Right mod)  = par 
   ret <- evalModule mod
   pPrint ret

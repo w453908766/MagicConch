@@ -20,7 +20,7 @@ data Value
  | VChar Char
  | VCons String [IORef Value]
  | VClosure String Expr (IORef Env)
- | VPrim Int [Value] ([Value]->Value)
+ | VPrim Int [Value] ([Value] -> IO Value)
 
 
 instance Show Value where
@@ -87,7 +87,7 @@ eval menv (App func arg) = do
       eval menv' body
 
     (VPrim 1 args f) -> 
-      return $ f (reverse $ argv:args)
+      lift $ f (reverse $ argv:args)
 
     (VPrim n args f) ->
       return $ VPrim (n-1) (argv:args) f
@@ -134,10 +134,14 @@ evalDecls menv decls = do
   return ()
 
 
+evalModule :: Module -> IO (Either String Env)
 evalModule (Module decls) = do
   menv <- newIORef initEnv
-  runExceptT (evalDecls menv decls)
-  readIORef menv
+  ret <- runExceptT (evalDecls menv decls)
+
+  case ret of
+    Right _ -> Right <$> readIORef menv
+    Left err -> return $ Left err
 
 
 
@@ -202,10 +206,14 @@ evalPatterns menv ((pat,body):ps) value = do
 
 
 
-add [VInt a, VInt b] = VInt (a+b)
-sub [VInt a, VInt b] = VInt (a-b)
-mul [VInt a, VInt b] = VInt (a*b)
-eq [a, b] = VBool (a==b)
+add [VInt a, VInt b] = return $ VInt (a+b)
+sub [VInt a, VInt b] = return $ VInt (a-b)
+mul [VInt a, VInt b] = return $ VInt (a*b)
+eq [a, b] = return $ VBool (a==b)
+
+print0 [a] = do
+  print a
+  return $ VBool True
 
 binop sym f = (sym, VPrim 2 [] f)
 
@@ -213,7 +221,8 @@ initEnv = fromList [
   binop "+" add, 
   binop "-" sub,
   binop "*" mul,
-  binop "==" eq
+  binop "==" eq,
+  ("print", VPrim 1 [] print0)
  ]
   
 
