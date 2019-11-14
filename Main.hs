@@ -17,7 +17,7 @@ main = do
   let par = run parseModule contents
 --  pPrint par
   let (Right mod)  = par 
-  let ret = evalModule mod
+  ret <- evalModule mod
   pPrint ret
   hClose handle  
 
