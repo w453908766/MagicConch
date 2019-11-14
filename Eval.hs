@@ -18,7 +18,8 @@ data Value
  = VInt Integer
  | VBool Bool
  | VChar Char
- | VCons String [IORef Value]
+ | VRef (IORef Value)
+ | VCons String [Value]
  | VClosure String Expr (IORef Env)
  | VPrim Int [Value] ([Value] -> IO Value)
 
@@ -27,7 +28,8 @@ instance Show Value where
   show (VInt x)  = show x
   show (VBool x) = show x
   show (VChar x) = show x
---  show (VCons name values) = "(" ++ (unwords (name : (fmap show values))) ++ ")"
+  show (VRef _) = "<<ref>>"
+  show (VCons name values) = "(" ++ (unwords (name : (fmap show values))) ++ ")"
   show (VClosure x body env) = "<<closure>>"
   show (VPrim n argv f) = "<<prim>>"
 
@@ -56,11 +58,12 @@ eval menv (Var x) = do
     Just v -> return v
     Nothing -> throwError ("Variable not in scope: " ++ (show (x,env)))
 
-eval menv (VCtor x) = do
+eval menv (DeRef x) = do
+  ref <- eval menv x
   env <- lift $ readIORef menv
-  case Map.lookup x env of
-    Just v -> return v
-    Nothing -> throwError ("Variable not in scope: " ++ (show (x,env)))
+  case ref of
+    VRef r -> lift $ readIORef r
+    _ -> throwError "dereference a unknown value"
 
 eval menv (Cond cond tr fl) = do
   vc <- eval menv cond
@@ -93,8 +96,7 @@ eval menv (App func arg) = do
       return $ VPrim (n-1) (argv:args) f
 
     (VCons ctor elems) -> do
-      x <- lift $ newIORef argv
-      return $ VCons ctor (elems++[x])
+      return $ VCons ctor (elems++[argv])
        
     _ -> throwError ((show v) ++ " is not a function")
 
@@ -161,11 +163,9 @@ match menv (PLit x) y = do
   else throwError "Dismatch Lit"
   
 
-match menv (PCons pctor ps) (VCons vctor mvs) = do
+match menv (PCons pctor ps) (VCons vctor vs) = do
   if pctor == vctor 
-  then do 
-    vs <- lift $ traverse readIORef mvs
-    matchs menv ps vs
+  then matchs menv ps vs
   else throwError "Dismatch Ctor"
 
   
@@ -211,6 +211,14 @@ sub [VInt a, VInt b] = return $ VInt (a-b)
 mul [VInt a, VInt b] = return $ VInt (a*b)
 eq [a, b] = return $ VBool (a==b)
 
+newRef [x] = do
+  r <- newIORef x
+  return $ VRef r
+
+write [VRef p, x] = do
+  writeIORef p x
+  return $ VBool True
+
 print0 [a] = do
   print a
   return $ VBool True
@@ -222,7 +230,9 @@ initEnv = fromList [
   binop "-" sub,
   binop "*" mul,
   binop "==" eq,
-  ("print", VPrim 1 [] print0)
+  binop "<-" write,
+  ("print", VPrim 1 [] print0),
+  ("Ref", VPrim 1 [] newRef)
  ]
   
 

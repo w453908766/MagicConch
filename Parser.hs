@@ -150,14 +150,13 @@ parseExpr' = do
   return $ combine (foldl1 App) es
 
 parseExpr'' = do
-  parseParen (foldl App (VCtor "Tuple")) parseExpr
+  parseParen (foldl App (Var "Tuple")) parseExpr
   <|> Lit <$> parseLit
-  <|> Var <$> ident 
-  <|> VCtor <$> uppIdent
+  <|> Var <$> (ident <|> uppIdent)
 
 parseDeRef = do
   char '!'
-  DeRef <$> ident
+  DeRef <$> parseExpr
 
 parseLet = do
   reserved "let"

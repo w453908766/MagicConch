@@ -24,9 +24,8 @@ data Expr
   = Lit Lit                  -- 4 or 'c'
 
   | Var String               -- x
-  | VCtor String              -- T1
   | App Expr Expr            -- f x
-  | DeRef String              -- !x
+  | DeRef Expr              -- !x
 
   | Lambda String Expr    -- \p1 => e
   | Cond Expr Expr Expr      -- if e1 then e2 else e3
