@@ -1,15 +1,11 @@
 
 module Eval where
 
-import Control.Monad.State
-import Control.Applicative
 import Control.Monad.Except
+import Control.Applicative
 
 import Data.Map as Map
-import Data.List as List
 import Data.IORef
-
-import Debug.Trace
 
 import Syntax
 
@@ -38,13 +34,13 @@ instance Eq Value where
   (VInt x)  == (VInt y)  = x==y
   (VBool x) == (VBool y) = x==y
   (VChar x) == (VChar y) = x==y
+  (VRef x) == (VRef y) = x==y
   (VCons n0 es0) == (VCons n1 es1) = n0==n1 && es0==es1
 
 
 type Env = Map String Value
-type EvalState = (ExceptT String) IO
 
-eval :: IORef Env -> Expr -> EvalState Value
+eval :: IORef Env -> Expr -> IO Value
 eval _ (Lit x) = 
  return $ case x of
   (IntLit x) -> VInt x
@@ -53,24 +49,24 @@ eval _ (Lit x) =
 
 
 eval menv (Var x) = do
-  env <- lift $ readIORef menv
+  env <- readIORef menv
   case Map.lookup x env of
     Just v -> return v
-    Nothing -> throwError ("Variable not in scope: " ++ (show (x,env)))
+    Nothing -> fail ("Variable not in scope: " ++ (show (x,env)))
 
 eval menv (DeRef x) = do
   ref <- eval menv x
-  env <- lift $ readIORef menv
+  env <- readIORef menv
   case ref of
-    VRef r -> lift $ readIORef r
-    _ -> throwError "dereference a unknown value"
+    VRef r -> readIORef r
+    _ -> fail "dereference a unknown value"
 
 eval menv (Cond cond tr fl) = do
   vc <- eval menv cond
   case vc of
     VBool True ->  eval menv tr
     VBool False -> eval menv fl
-    _ -> throwError "Condition is not Bool Type"
+    _ -> fail "Condition is not Bool Type"
 
 eval menv (Block es) = do
   rs <- traverse (eval menv) es
@@ -78,19 +74,22 @@ eval menv (Block es) = do
 
 eval menv (Case expr ps) = do
   value <- eval menv expr
-  evalPatterns menv ps value
+  res <- runExceptT $ evalPatterns menv ps value
+  case res of
+    Left err -> fail err
+    Right ret -> return ret
 
 eval menv (App func arg) = do
   v <- eval menv func
   argv <- eval menv arg
   case v of
     (VClosure x body mclos) -> do
-      clos <- lift $ readIORef mclos
-      menv' <- lift $ newIORef $ Map.insert x argv clos
+      clos <- readIORef mclos
+      menv' <- newIORef $ Map.insert x argv clos
       eval menv' body
 
     (VPrim 1 args f) -> 
-      lift $ f (reverse $ argv:args)
+      f (reverse $ argv:args)
 
     (VPrim n args f) ->
       return $ VPrim (n-1) (argv:args) f
@@ -98,7 +97,7 @@ eval menv (App func arg) = do
     (VCons ctor elems) -> do
       return $ VCons ctor (elems++[argv])
        
-    _ -> throwError ((show v) ++ " is not a function")
+    _ -> fail ((show v) ++ " is not a function")
 
 eval menv (Lambda x body) = do
   return $ VClosure x body menv
@@ -111,63 +110,69 @@ eval menv (Let decls) = do
 -----------------------------------------
 
  
-evalDecl :: IORef Env -> Decl -> EvalState ()
+evalDecl :: IORef Env -> Decl -> IO ()
 evalDecl menv (Val pat expr) = do
   value <- eval menv expr
-  match menv pat value
+  res <- runExceptT $ match menv pat value
+  case res of
+    Left err -> fail err
+    Right () -> return ()
 
 evalDecl menv (Func name params body) = do
-  let body' = List.foldr Lambda body params
+  let body' = Prelude.foldr Lambda body params
   clos <- eval menv body'
-  env <- lift $ readIORef menv
-  lift $ writeIORef menv (Map.insert name clos env)
+  env <- readIORef menv
+  writeIORef menv (Map.insert name clos env)
 
 
 evalDecl menv (TypeCtor _ _ ctors) = do
   let f (name, _) = Map.insert name (VCons name [])
-  env <- lift $ readIORef menv
-  let env' = List.foldr f env ctors
-  lift $ writeIORef menv env'
+  env <- readIORef menv
+  let env' = Prelude.foldr f env ctors
+  writeIORef menv env'
+
+evalDecl menv (TypeAlias _ _ _) = do
+  return ()
+
+evalDecl menv (Proto _ _) = do
+  return ()
   
   
-evalDecls :: IORef Env -> [Decl] -> EvalState ()
+evalDecls :: IORef Env -> [Decl] -> IO ()
 evalDecls menv decls = do
   traverse (evalDecl menv) decls
   return ()
 
 
-evalModule :: Module -> IO (Either String Env)
+evalModule :: Module -> IO Env
 evalModule (Module decls) = do
   menv <- newIORef initEnv
-  ret <- runExceptT (evalDecls menv decls)
-
-  case ret of
-    Right _ -> Right <$> readIORef menv
-    Left err -> return $ Left err
+  evalDecls menv decls
+  readIORef menv
 
 
 
 -----------------------
-
-matchLit :: Lit -> Value -> Bool
-matchLit (IntLit x)  (VInt y)  = x==y
-matchLit (BoolLit x) (VBool y) = x==y
-matchLit (CharLit x) (VChar y) = x==y
      
-match :: IORef Env -> Pattern -> Value -> EvalState ()
+match :: IORef Env -> Pattern -> Value -> ExceptT String IO ()
 match menv PWild _ = return ()
 
-match menv (PLit x) y = do
-  if matchLit x y 
-  then return ()
+match menv (PLit xx) yy = do
+  let eq = case (xx,yy) of
+             (IntLit x, VInt y)  -> x==y
+             (BoolLit x, VBool y) -> x==y
+             (CharLit x, VChar y) -> x==y
+  if eq then return ()
   else throwError "Dismatch Lit"
   
+match menv (PRef pat) (VRef ref) = do
+  v <- lift $ readIORef ref 
+  match menv pat v
 
 match menv (PCons pctor ps) (VCons vctor vs) = do
   if pctor == vctor 
   then matchs menv ps vs
   else throwError "Dismatch Ctor"
-
   
 match menv (PVar capture name mpat) value = do
   case mpat of
@@ -192,14 +197,14 @@ matchs menv (p:ps) (v:vs) = do
   match menv p v
   matchs menv ps vs
  
-evalPatterns :: IORef Env -> Cases -> Value -> EvalState Value
+evalPatterns :: IORef Env -> Cases -> Value -> ExceptT String IO Value
 evalPatterns menv [] _ = throwError "Can not match any pattern"
 evalPatterns menv ((pat,body):ps) value = do
   env <- lift $ readIORef menv
   let f = do
        menv' <- lift $ newIORef env
        match menv' pat value
-       eval menv' body
+       lift $ eval menv' body
   f <|> evalPatterns menv ps value
 
 ------------------------------------

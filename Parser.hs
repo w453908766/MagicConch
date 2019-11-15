@@ -32,8 +32,13 @@ parsePattern = do
   parseParen (PCons "Tuple") parsePattern
   <|> (reserved "_" >> return PWild)
   <|> (PLit <$> parseLit)
+  <|> parsePRef
   <|> parsePCtor
   <|> parsePVar
+
+parsePRef = do
+  reserved "Ref"
+  PRef <$> parsePattern
 
 parsePCtor = do
   ctor <- uppIdent

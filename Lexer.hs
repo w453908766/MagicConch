@@ -26,7 +26,7 @@ langDef = Tok.LanguageDef
   , Tok.identLetter     = alphaNum <|> oneOf "_'"
   , Tok.opStart         = oneOf opChars
   , Tok.opLetter        = oneOf opChars
-  , Tok.reservedNames   = ["block", "case","of","if","then","else","data","type","import","module","return","_", "where"]
+  , Tok.reservedNames   = ["block", "case","of","if","then","else","data","type","import","module","return","_", "where", "Ref"]
 --  , Tok.reservedOpNames = ["::","=","<-","@", ";", "+", "-", "*", "/", "%"]
   , Tok.reservedOpNames = ["::","..","=","\\","|","->","@","~","=>"]
   , Tok.caseSensitive   = True

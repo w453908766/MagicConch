@@ -9,10 +9,14 @@ data Maybe a where
   Just a
 
 main args = block
-  let a = Just (Ref 5)
-  case a of
+  let a = Ref 5
+      b = Just a
+      d = a
+     
+  case b of
     Nothing => 0
-    Just b => !b
+    Just &d => 666
+    Just c => !c
 
 z = main 0
 

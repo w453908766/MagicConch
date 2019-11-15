@@ -14,6 +14,7 @@ data Type
 data Pattern
   = PVar Bool String (Maybe Pattern) -- &x@p
   | PCons String [Pattern]   -- C1 t1 t2
+  | PRef Pattern             -- Ref 5
   | PLit Lit                 -- 5 or 'c'
   | PWild                    -- _
   deriving (Show, Read, Eq)
