@@ -52,6 +52,10 @@ uppIdent = indented >> uppIdent0
 
 intLit = indented >> Tok.natural lexer
 charLit = indented >> Tok.charLiteral lexer
+boolLit = do
+  indented
+  (reserved "True" >> return True)
+   <|> (reserved "False" >> return False)
 
 braces p = indented >> Tok.braces lexer p
 parens p = indented >> Tok.parens lexer p

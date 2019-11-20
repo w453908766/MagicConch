@@ -54,9 +54,14 @@ sat p = indented >> satisfy p >> spaces
 
 parseParen :: ([a]->a) -> IParsec a -> IParsec a
 parseParen f p = do
-  sat (=='(')
-  ps <- sepBy1 p (sat (== ','))
-  sat (==')')
+  ps <- parseBrackets '(' ')' p
   return $ combine f ps
 
+parseBrackets :: Char -> Char -> IParsec a -> IParsec [a]
+parseBrackets start end p = do
+  sat (== start)
+  ps <- sepBy1 p (sat (== ','))
+  sat (== end)
+  return ps
+  
 

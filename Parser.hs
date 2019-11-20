@@ -22,7 +22,9 @@ import ParseUtils
 
 parseLit :: IParsec Lit
 parseLit =
-  (IntLit <$> intLit) <|> (CharLit <$> charLit)
+  (LInt <$> intLit) 
+   <|> (LChar <$> charLit)
+   <|> (LBool <$> boolLit)
 
 
 ---------------------------------------------------
@@ -38,7 +40,8 @@ parsePattern = do
 
 parsePRef = do
   reserved "Ref"
-  PRef <$> parsePattern
+  p <- parsePattern
+  return $ PCons "PCons" [p]
 
 parsePCtor = do
   ctor <- uppIdent

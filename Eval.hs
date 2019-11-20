@@ -3,6 +3,7 @@ module Eval where
 
 import Control.Monad.Except
 import Control.Applicative
+import Text.Printf
 
 import Data.Map as Map
 import Data.IORef
@@ -25,7 +26,7 @@ instance Show Value where
   show (VBool x) = show x
   show (VChar x) = show x
   show (VRef _) = "<<ref>>"
-  show (VCons name values) = "(" ++ (unwords (name : (fmap show values))) ++ ")"
+  show (VCons name values) = printf "(%s %s)" name (unwords $ fmap show values)
   show (VClosure x body env) = "<<closure>>"
   show (VPrim n argv f) = "<<prim>>"
 
@@ -43,30 +44,29 @@ type Env = Map String Value
 eval :: IORef Env -> Expr -> IO Value
 eval _ (Lit x) = 
  return $ case x of
-  (IntLit x) -> VInt x
-  (BoolLit x) -> VBool x
-  (CharLit x) -> VChar x
+  (LInt x) -> VInt x
+  (LBool x) -> VBool x
+  (LChar x) -> VChar x
 
 
 eval menv (Var x) = do
   env <- readIORef menv
   case Map.lookup x env of
     Just v -> return v
-    Nothing -> fail ("Variable not in scope: " ++ (show (x,env)))
+    Nothing -> fail $ printf "Variable not in scope: %s" (show x)
 
 eval menv (DeRef x) = do
   ref <- eval menv x
-  env <- readIORef menv
   case ref of
     VRef r -> readIORef r
-    _ -> fail "dereference a unknown value"
+    _ -> fail $ printf "dereference a unknown value: %s" ++ (show x)
 
 eval menv (Cond cond tr fl) = do
   vc <- eval menv cond
   case vc of
     VBool True ->  eval menv tr
     VBool False -> eval menv fl
-    _ -> fail "Condition is not Bool Type"
+    _ -> fail $ printf "Condition is not Bool Type: %s" (show vc)
 
 eval menv (Block es) = do
   rs <- traverse (eval menv) es
@@ -97,7 +97,7 @@ eval menv (App func arg) = do
     (VCons ctor elems) -> do
       return $ VCons ctor (elems++[argv])
        
-    _ -> fail ((show v) ++ " is not a function")
+    _ -> fail $ printf "%s is not a function" (show v)
 
 eval menv (Lambda x body) = do
   return $ VClosure x body menv
@@ -105,7 +105,7 @@ eval menv (Lambda x body) = do
 
 eval menv (Let decls) = do
   evalDecls menv decls
-  return $ VBool True
+  return $ VCons "Tuple" []
 
 -----------------------------------------
 
@@ -158,16 +158,18 @@ match :: IORef Env -> Pattern -> Value -> ExceptT String IO ()
 match menv PWild _ = return ()
 
 match menv (PLit xx) yy = do
-  let eq = case (xx,yy) of
-             (IntLit x, VInt y)  -> x==y
-             (BoolLit x, VBool y) -> x==y
-             (CharLit x, VChar y) -> x==y
-  if eq then return ()
-  else throwError "Dismatch Lit"
+  case (xx,yy) of
+    (LInt x, VInt y)  -> guard $ x==y
+    (LBool x, VBool y) -> guard $ x==y
+    (LChar x, VChar y) -> guard $ x==y
+    _ -> fail $ printf "Dismatch Type: %s & %s" (show xx) (show yy)
   
-match menv (PRef pat) (VRef ref) = do
+match menv (PCons "Ref" [pat]) (VRef ref) = do
   v <- lift $ readIORef ref 
   match menv pat v
+
+match menv (PCons "Ref" pats) (VRef ref) = do
+  fail $ printf "Ref can not have multiple value: Ref %s" (unwords $ fmap show pats)
 
 match menv (PCons pctor ps) (VCons vctor vs) = do
   if pctor == vctor 
@@ -191,8 +193,8 @@ match menv (PVar capture name mpat) value = do
   else lift $ writeIORef menv $ Map.insert name value env'
   
 matchs menv [] [] = return ()
-matchs menv _ [] = throwError "Dismatch Ctor"
-matchs menv [] _ = throwError "Dismatch Ctor"
+matchs menv _ [] = fail "Dismatch Ctor"
+matchs menv [] _ = fail "Dismatch Ctor"
 matchs menv (p:ps) (v:vs) = do
   match menv p v
   matchs menv ps vs

@@ -1,20 +1,25 @@
 module Syntax where
 
 data Lit
-  = IntLit Integer
-  | BoolLit Bool
-  | CharLit Char
+  = LInt Integer
+  | LBool Bool
+  | LChar Char
   deriving (Show, Read, Eq)
 
 data Type
   = TVar String              -- a
   | TCons String [Type]             -- T
+  | Forall [String] Type
   deriving (Show, Read, Eq)
+
+instance Ord Type where
+  compare (TVar a) (TVar b) =
+    compare (length a) (length b) <> compare a b 
+  
 
 data Pattern
   = PVar Bool String (Maybe Pattern) -- &x@p
   | PCons String [Pattern]   -- C1 t1 t2
-  | PRef Pattern             -- Ref 5
   | PLit Lit                 -- 5 or 'c'
   | PWild                    -- _
   deriving (Show, Read, Eq)
