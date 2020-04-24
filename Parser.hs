@@ -71,19 +71,22 @@ parseType' = do
 
 ---------------------------------------------------
 
-parseFunc (PVar False name Nothing) = do
+parseFunc = do
+  name <- ident
   params <- some ident
   reservedOp "="
   body <- parseExpr
   return $ Func name params body
   
-parseVal pat = do 
+parseVal = do 
+  pat <- parsePattern
   reservedOp "="
   val <- parseExpr
   return $ Val pat val
 
-parseProto :: Pattern -> IParsec Decl   
-parseProto (PVar False name Nothing) = do
+parseProto :: IParsec Decl   
+parseProto = do
+  name <- ident
   reservedOp "::"
   typ <- parseType
   return $ Proto name typ 
@@ -113,11 +116,9 @@ parseDecl :: IParsec Decl
 parseDecl = do
   parseTypeAlias 
    <|> parseTypeCtor
-   <|> do
-    pat <- parsePattern
-    parseProto pat 
-     <|> parseVal pat
-     <|> parseFunc pat
+   <|> try parseProto
+   <|> try parseVal
+   <|> parseFunc
 
 ---------------------------------------------------
 

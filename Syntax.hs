@@ -14,7 +14,7 @@ data Type
 
 instance Ord Type where
   compare (TVar a) (TVar b) =
-    compare (length a) (length b) <> compare a b 
+    mappend (compare (length a) (length b)) (compare a b)
   
 
 data Pattern
